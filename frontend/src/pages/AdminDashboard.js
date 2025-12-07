@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axiosInstance";
+import AdminStatsCharts from "../components/AdminStatsCharts.jsx";
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -47,7 +48,9 @@ const AdminDashboard = () => {
   return (
     <div style={{ padding: "20px" }}>
       <h2>Admin Dashboard</h2>
-      <p>Welcome, Admin. From here you can manage users and view system stats.</p>
+      <p>
+        Welcome, Admin. From here you can manage users and view system stats.
+      </p>
 
       {loadingStats && <p>Loading stats...</p>}
       {error && <p style={{ color: "red" }}>{error}</p>}
@@ -117,6 +120,9 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Charts section */}
+      <AdminStatsCharts stats={stats} />
 
       <div style={{ marginTop: "30px", display: "flex", gap: "10px" }}>
         <button onClick={() => navigate("/admin/pending-users")}>
