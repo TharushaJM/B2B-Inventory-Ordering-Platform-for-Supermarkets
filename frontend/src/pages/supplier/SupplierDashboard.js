@@ -1,7 +1,7 @@
 // frontend/src/pages/supplier/SupplierDashboard.jsx
 
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import axios from "../../api/axiosInstance"; 
 import { useNavigate } from "react-router-dom";
 import "./SupplierDashboard.css";
 import SupplierSidebar from "./Suppliersidebar";
@@ -31,24 +31,25 @@ const SupplierDashboard = () => {
 
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  
+  const [stats, setStats] = useState({ totalProducts: 0, activeProducts: 0, lowStock: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const token = localStorage.getItem("token");
-
-        const config = {
-          headers: { Authorization: `Bearer ${token}` },
-        };
-
-        const [productRes, orderRes] = await Promise.all([
-          axios.get("/api/products/my-products", config),
-          axios.get("/api/orders/supplier", config),
+        
+        
+        const [productRes, orderRes, statsRes] = await Promise.all([
+          axios.get("/products/my-products"),
+          axios.get("/orders/supplier"),
+          
+          axios.get("/products/dashboard-stats").catch(() => ({ data: {} })), 
         ]);
 
         setProducts(productRes.data);
         setOrders(orderRes.data);
+        setStats(statsRes.data || {}); // Set stats if available
       } catch (err) {
         console.error("Dashboard fetch failed:", err);
       } finally {
@@ -62,14 +63,16 @@ const SupplierDashboard = () => {
   if (loading)
     return (
       <div className="loading-container">
+        <div className="spinner"></div>
         <p>Loading dashboard...</p>
       </div>
     );
 
-  // ---------- STAT COMPUTATION ----------
-  const totalProducts = products.length;
-  const activeProducts = products.filter((p) => p.isActive !== false).length;
-  const lowStockProducts = products.filter((p) => p.stock <= 10).length;
+  // ---------- STAT COMPUTATION (WITH FALLBACKS) ----------
+  // 
+  const totalProducts = stats.totalProducts || products.length || 0;
+  const activeProducts = stats.activeProducts || products.filter((p) => p.isActive !== false).length || 0;
+  const lowStockProducts = stats.lowStock || products.filter((p) => p.stock <= 10).length || 0;
 
   // ---------- PIE CHART DATA ----------
   const stockData = [
@@ -83,18 +86,8 @@ const SupplierDashboard = () => {
 
   // ---------- ORDERS LINE CHART DATA ----------
   const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   const ordersByMonth = {};
 
@@ -145,17 +138,7 @@ const SupplierDashboard = () => {
                 </div>
               </div>
               <div className="stat-icon stat-icon-purple">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                   <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
                   <line x1="12" y1="22.08" x2="12" y2="12"></line>
@@ -171,17 +154,7 @@ const SupplierDashboard = () => {
                 </div>
               </div>
               <div className="stat-icon stat-icon-green">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
                   <polyline points="22 4 12 14.01 9 11.01"></polyline>
                 </svg>
@@ -194,17 +167,7 @@ const SupplierDashboard = () => {
                 <div className="stat-value">{lowStockProducts}</div>
               </div>
               <div className="stat-icon stat-icon-yellow">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
                   <line x1="12" y1="9" x2="12" y2="13"></line>
                   <line x1="12" y1="17" x2="12.01" y2="17"></line>
@@ -230,18 +193,11 @@ const SupplierDashboard = () => {
                     paddingAngle={2}
                   >
                     {stockData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip />
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                  />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -252,31 +208,10 @@ const SupplierDashboard = () => {
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart data={monthlyOrdersData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
-                    axisLine={{ stroke: "#e5e7eb" }}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
-                    axisLine={{ stroke: "#e5e7eb" }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="orders"
-                    stroke="#3b82f6"
-                    strokeWidth={3}
-                    dot={{ fill: "#3b82f6", r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
+                  <XAxis dataKey="month" tick={{ fill: "#6b7280", fontSize: 12 }} axisLine={{ stroke: "#e5e7eb" }} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#6b7280", fontSize: 12 }} axisLine={{ stroke: "#e5e7eb" }} />
+                  <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "8px" }} />
+                  <Line type="monotone" dataKey="orders" stroke="#3b82f6" strokeWidth={3} dot={{ fill: "#3b82f6", r: 4 }} activeDot={{ r: 6 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -286,21 +221,8 @@ const SupplierDashboard = () => {
           <div className="quick-actions">
             <h3 className="section-title">Quick Actions</h3>
             <div className="action-buttons">
-              <button
-                className="action-btn action-btn-primary"
-                onClick={() => navigate("/supplier/products")}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+              <button className="action-btn action-btn-primary" onClick={() => navigate("/supplier/products")}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
                 </svg>
                 Manage Products
@@ -308,42 +230,17 @@ const SupplierDashboard = () => {
 
               <button
                 className="action-btn action-btn-secondary"
-                onClick={() =>
-                  navigate("/supplier/products", { state: { openAdd: true } })
-                }
+                onClick={() => navigate("/supplier/products", { state: { openAdd: true } })}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
                 Add New Product
               </button>
 
-              <button
-                className="action-btn action-btn-outline"
-                onClick={() => navigate("/supplier/orders")}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+              <button className="action-btn action-btn-outline" onClick={() => navigate("/supplier/orders")}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 11l3 3L22 4"></path>
                   <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
                 </svg>
@@ -374,34 +271,21 @@ const SupplierDashboard = () => {
                     {lowStockProductsList.map((product) => (
                       <tr key={product._id}>
                         <td className="product-name">{product.name}</td>
-                        <td className="product-category">
-                          {product.category || "N/A"}
-                        </td>
+                        <td className="product-category">{product.category || "N/A"}</td>
                         <td>
-                          <span
-                            className={`stock-badge ${
-                              product.stock <= 5
-                                ? "stock-critical"
-                                : product.stock <= 10
-                                ? "stock-low"
-                                : "stock-medium"
-                            }`}
-                          >
+                          <span className={`stock-badge ${product.stock <= 5 ? "stock-critical" : product.stock <= 10 ? "stock-low" : "stock-medium"}`}>
                             {product.stock} units
                           </span>
                         </td>
-                        <td className="product-price">
-                          ${product.price?.toFixed(2)}
-                        </td>
+                        
+                        <td className="product-price">Rs.{product.price?.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <p className="no-data-message">
-                All products are well stocked! 🎉
-              </p>
+              <p className="no-data-message">All products are well stocked! 🎉</p>
             )}
           </div>
         </div>
