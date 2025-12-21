@@ -365,8 +365,8 @@ const ViewProducts = () => {
                 <tbody>
                   {paginatedProducts.map((product, index) => (
                     <tr key={product._id}>
-                      <td className="id-cell">{generateProductId(index)}</td>
-                      <td className="photo-cell">
+                      <td className="id-cell" data-label="ID">{generateProductId(index)}</td>
+                      <td className="photo-cell"  data-label="Photo">
                         <div className="product-photo">
                           {product.image ? (
                             <img
@@ -378,16 +378,16 @@ const ViewProducts = () => {
                           )}
                         </div>
                       </td>
-                      <td className="name-cell">
+                      <td className="name-cell" data-label="Item Name">
                         <div className="product-name">{product.name}</div>
                         <div className="product-desc">
                           {product.description}
                         </div>
                       </td>
-                      <td className="price-cell">
+                      <td className="price-cell"  data-label="Price">
                         Rs.{parseFloat(product.price).toFixed(2)}
                       </td>
-                      <td className="status-cell">
+                      <td className="status-cell" data-label="Status">
                         {(() => {
                           let statusClass = "in-stock";
                           let statusText = "In Stock";
@@ -405,18 +405,18 @@ const ViewProducts = () => {
                           );
                         })()}
                       </td>
-                      <td className="category-cell">
+                      <td className="category-cell" data-label="Category">
                         <span className="category-tag">
                           #{product.category || "Other"}
                         </span>
                       </td>
-                      <td className="stock-cell">{product.stock}</td>
-                      <td className="date-cell">
+                      <td className="stock-cell" data-label="Stock">{product.stock}</td>
+                      <td className="date-cell" data-label="Update">
                         {formatDate(product.updatedAt || product.createdAt)}
                       </td>
 
                       {/* --- THIS IS THE UPDATED ACTION CELL --- */}
-                      <td className="action-cell">
+                      <td className="action-cell"  data-label="Action">
                         <div className="action-buttons">
                           {/* View / Info Icon */}
                           <button
