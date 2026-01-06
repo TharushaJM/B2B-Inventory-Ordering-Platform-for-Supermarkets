@@ -20,6 +20,7 @@ import SupplierDashboard from "./pages/supplier/DashboardPage/SupplierDashboard"
 import SupermarketDashboard from "./pages/SupermarketDashboard";
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
+import SupplierOrders from "./pages/supplier/OrderPage/SupplierOrders";
 
 import ViewProducts from "./pages/supplier/ProductPage/ViewProducts";
 
@@ -81,6 +82,7 @@ const App = () => {
             />
             
             <Route path="/supplier/products" element={<ViewProducts />} />
+            <Route path="/supplier/orders" element={<SupplierOrders />} />
           </Route>
         </Routes>
       </Router>
