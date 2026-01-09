@@ -533,3 +533,21 @@
     font-size: 28px;
   }
 }
+/* Right side card bigger */
+.buyers-right .chart-card {
+  min-height: 620px;      
+  padding: 18px;
+}
+
+/* Map wrapper full height */
+.buyers-right .chart-card > div {
+  height: 100%;
+}
+
+/* (Optional) buyers grid balance */
+.buyers-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;  
+  gap: 18px;
+}
+

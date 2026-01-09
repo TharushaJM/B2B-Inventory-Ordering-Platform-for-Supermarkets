@@ -3,6 +3,7 @@ import axios from "../../../api/axiosInstance";
 import SupplierSidebar from "../Suppliersidebar";
 import SupplierTopbar from "../SupplierTopbar";
 import "./SupplierBuyers.css";
+import SriLankaLeafletMap from "../../../components/SriLankaLeafletMap";
 
 import {
   ResponsiveContainer,
@@ -20,15 +21,12 @@ const money = (n = 0) =>
   `Rs. ${Number(n || 0).toLocaleString("en-LK", { maximumFractionDigits: 0 })}`;
 
 const formatValue = (value) => {
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(1)}M`;
-  } else if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
-  }
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
   return value.toString();
 };
 
-const safeLower = (v) => (v ? String(v).toLowerCase() : "");
+const safeLower = (v) => (v ? String(v).trim().toLowerCase() : "");
 
 const getInitials = (name = "") => {
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -67,6 +65,18 @@ const SupplierBuyers = () => {
     load();
   }, []);
 
+  // Build a mapping: lower(district) -> original district string from buyer data
+  // This helps when Leaflet map click returns slightly different casing/spaces.
+  const districtCanonicalMap = useMemo(() => {
+    const map = {};
+    buyers.forEach((b) => {
+      if (!b?.district) return;
+      const key = safeLower(b.district);
+      if (key && !map[key]) map[key] = b.district; // keep first seen "nice" value
+    });
+    return map;
+  }, [buyers]);
+
   // District list for dropdown
   const districts = useMemo(() => {
     const set = new Set();
@@ -76,16 +86,23 @@ const SupplierBuyers = () => {
     return ["all", ...Array.from(set).sort()];
   }, [buyers]);
 
-  // Filtered buyers
+  // Filtered buyers (district matching is case-insensitive now ✅)
   const filtered = useMemo(() => {
-    const q = safeLower(search.trim());
+    const q = safeLower(search);
+    const selectedKey = safeLower(district);
+
     return buyers.filter((b) => {
-      const matchesDistrict = district === "all" || b.district === district;
+      const buyerDistrictKey = safeLower(b.district);
+
+      const matchesDistrict =
+        district === "all" || buyerDistrictKey === selectedKey;
+
       const matchesSearch =
         !q ||
         safeLower(b.name).includes(q) ||
         safeLower(b.contactEmail).includes(q) ||
-        safeLower(b.district).includes(q);
+        buyerDistrictKey.includes(q);
+
       return matchesDistrict && matchesSearch;
     });
   }, [buyers, search, district]);
@@ -103,8 +120,14 @@ const SupplierBuyers = () => {
   // Stats
   const stats = useMemo(() => {
     const totalSupermarkets = buyers.length;
-    const totalOrders = buyers.reduce((acc, b) => acc + Number(b.totalOrders || 0), 0);
-    const totalRevenue = buyers.reduce((acc, b) => acc + Number(b.totalRevenue || 0), 0);
+    const totalOrders = buyers.reduce(
+      (acc, b) => acc + Number(b.totalOrders || 0),
+      0
+    );
+    const totalRevenue = buyers.reduce(
+      (acc, b) => acc + Number(b.totalRevenue || 0),
+      0
+    );
     return { totalSupermarkets, totalOrders, totalRevenue };
   }, [buyers]);
 
@@ -116,12 +139,25 @@ const SupplierBuyers = () => {
       map[d] = (map[d] || 0) + Number(b.totalRevenue || 0);
     });
 
-    const arr = Object.entries(map)
+    return Object.entries(map)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 4);
+  }, [buyers]);
 
-    return arr;
+  // ✅ Map data: districtStats (keyed by lower-case district name)
+  const districtStats = useMemo(() => {
+    const out = {};
+    buyers.forEach((b) => {
+      const d = safeLower(b.district);
+      if (!d) return;
+
+      out[d] = out[d] || { buyers: 0, orders: 0, revenue: 0 };
+      out[d].buyers += 1;
+      out[d].orders += Number(b.totalOrders || 0);
+      out[d].revenue += Number(b.totalRevenue || 0);
+    });
+    return out;
   }, [buyers]);
 
   const showingFrom = filtered.length === 0 ? 0 : start + 1;
@@ -155,8 +191,8 @@ const SupplierBuyers = () => {
           <div className="buyers-header">
             <h1 className="buyers-title">Buyers / Supermarkets</h1>
             <p className="buyers-subtitle">
-              Here is the list of supermarkets that have purchased from you. Click 'View' to
-              see order history and details.
+              Here is the list of supermarkets that have purchased from you.
+              Click 'View' to see order history and details.
             </p>
           </div>
 
@@ -202,7 +238,10 @@ const SupplierBuyers = () => {
                   />
                 </div>
 
-                <select value={district} onChange={(e) => setDistrict(e.target.value)}>
+                <select
+                  value={district}
+                  onChange={(e) => setDistrict(e.target.value)}
+                >
                   {districts.map((d) => (
                     <option key={d} value={d}>
                       {d === "all" ? "All Districts" : d}
@@ -223,8 +262,15 @@ const SupplierBuyers = () => {
                   <div className="buyers-empty">
                     <p>No buyers found.</p>
                     {buyers.length === 0 && (
-                      <small style={{ color: '#94a3b8', marginTop: '8px', display: 'block' }}>
-                        Your buyer list will populate when supermarkets place orders.
+                      <small
+                        style={{
+                          color: "#94a3b8",
+                          marginTop: "8px",
+                          display: "block",
+                        }}
+                      >
+                        Your buyer list will populate when supermarkets place
+                        orders.
                       </small>
                     )}
                   </div>
@@ -247,25 +293,38 @@ const SupplierBuyers = () => {
                             <td className="sm-cell">
                               <div className="sm-wrap">
                                 {b.logoUrl ? (
-                                  <img className="sm-logo" src={b.logoUrl} alt={b.name} />
+                                  <img
+                                    className="sm-logo"
+                                    src={b.logoUrl}
+                                    alt={b.name}
+                                  />
                                 ) : (
-                                  <div className="sm-logo-fallback">{getInitials(b.name)}</div>
+                                  <div className="sm-logo-fallback">
+                                    {getInitials(b.name)}
+                                  </div>
                                 )}
                                 <div className="sm-name">
-                                  <div className="sm-title">{b.name || "Unknown"}</div>
-                                  <div className="sm-sub">{b.district || ""}</div>
+                                  <div className="sm-title">
+                                    {b.name || "Unknown"}
+                                  </div>
+                                  <div className="sm-sub">
+                                    {b.district || ""}
+                                  </div>
                                 </div>
                               </div>
                             </td>
                             <td>{b.district || "-"}</td>
-                            <td className="truncate">{b.contactEmail || "-"}</td>
-                            <td>{Number(b.totalOrders || 0).toLocaleString()}</td>
+                            <td className="truncate">
+                              {b.contactEmail || "-"}
+                            </td>
+                            <td>
+                              {Number(b.totalOrders || 0).toLocaleString()}
+                            </td>
                             <td>{money(b.totalRevenue || 0)}</td>
                             <td>
                               <button
                                 className="view-btn"
                                 onClick={() => {
-                                  // TODO: Navigate to buyer details page
                                   console.log(`View details for ${b.name}`);
                                 }}
                               >
@@ -295,7 +354,9 @@ const SupplierBuyers = () => {
                         <button
                           className="pg-btn"
                           disabled={pageSafe >= totalPages}
-                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          onClick={() =>
+                            setPage((p) => Math.min(totalPages, p + 1))
+                          }
                         >
                           Next ›
                         </button>
@@ -306,95 +367,46 @@ const SupplierBuyers = () => {
               </div>
             </div>
 
-            {/* RIGHT: Chart */}
+            {/* RIGHT: Map + Chart */}
             <div className="buyers-right">
+              {/* ✅ NEW: Leaflet Map card */}
               <div className="chart-card">
-                <div className="chart-title">Top Districts</div>
+                <div className="chart-title">Buyer Districts (Sri Lanka)</div>
 
-                {topDistricts.length === 0 ? (
+                {buyers.length === 0 ? (
                   <div className="buyers-empty">
                     <p>No district data yet.</p>
                   </div>
                 ) : (
-                  <div className="chart-wrap">
-                    {/* Main chart with labels on top */}
-                    <ResponsiveContainer width="100%" height={240}>
-                      <BarChart 
-                        data={topDistricts} 
-                        margin={{ top: 30, right: 20, left: 0, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                        <XAxis 
-                          dataKey="name" 
-                          tick={{ fontSize: 13, fill: '#64748b', fontWeight: 500 }}
-                          tickLine={false}
-                          axisLine={{ stroke: '#e2e8f0' }}
-                        />
-                        <YAxis 
-                          tick={{ fontSize: 12, fill: '#94a3b8' }}
-                          tickLine={false}
-                          axisLine={false}
-                        />
-                        <Tooltip 
-                          formatter={(v) => money(v)}
-                          contentStyle={{
-                            background: 'white',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '10px',
-                            padding: '10px 14px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                          }}
-                          cursor={{ fill: 'rgba(59, 130, 246, 0.05)' }}
-                        />
-                        <Bar 
-                          dataKey="value" 
-                          radius={[10, 10, 0, 0]}
-                        >
-                          {topDistricts.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                          ))}
-                          <LabelList content={renderCustomLabel} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <>
+                    <SriLankaLeafletMap
+                      height={500}
+                      districtStats={districtStats}
+                      selectedDistrict={district}
+                      onSelectDistrict={(clickedDistrictName) => {
+                        // convert clicked district to canonical district from buyer list if possible
+                        const key = safeLower(clickedDistrictName);
+                        const canonical =
+                          districtCanonicalMap[key] || clickedDistrictName;
+                        setDistrict(canonical);
+                      }}
+                    />
 
-                    {/* Mini chart */}
-                    <div className="mini-chart">
-                      <ResponsiveContainer width="100%" height={180}>
-                        <BarChart 
-                          data={topDistricts} 
-                          margin={{ top: 30, right: 20, left: 0, bottom: 5 }}
-                        >
-                          <XAxis 
-                            dataKey="name" 
-                            tick={{ fontSize: 12, fill: '#64748b', fontWeight: 500 }}
-                            tickLine={false}
-                            axisLine={{ stroke: '#e2e8f0' }}
-                          />
-                          <Tooltip 
-                            formatter={(v) => money(v)}
-                            contentStyle={{
-                              background: 'white',
-                              border: '1px solid #e2e8f0',
-                              borderRadius: '10px',
-                              padding: '8px 12px',
-                              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                            }}
-                            cursor={{ fill: 'rgba(59, 130, 246, 0.05)' }}
-                          />
-                          <Bar 
-                            dataKey="value" 
-                            radius={[10, 10, 0, 0]}
-                          >
-                            {topDistricts.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                            ))}
-                            <LabelList content={renderCustomLabel} />
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+                    <p style={{ marginTop: 8, fontSize: 12, color: "#64748b" }}>
+                      Click a district to filter the table.
+                    </p>
+
+                    {/* quick reset button */}
+                    {district !== "all" && (
+                      <button
+                        className="pg-btn"
+                        style={{ marginTop: 10 }}
+                        onClick={() => setDistrict("all")}
+                      >
+                        Clear Filter
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
