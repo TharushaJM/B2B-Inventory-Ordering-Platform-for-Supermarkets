@@ -22,7 +22,7 @@ import PendingApprovalPage from "./pages/PendingApprovalPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import SupplierOrders from "./pages/supplier/OrderPage/SupplierOrders";
 
-import ViewProducts from "./pages/supplier/ProductPage/ViewProducts
+import ViewProducts from "./pages/supplier/ProductPage/ViewProducts";
 import SupplierBuyers from "./pages/supplier/SupplierBuyers/SupplierBuyers";
 
 // ...
