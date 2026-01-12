@@ -8,7 +8,6 @@ import {
 } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import PrivateRoute from "./components/PrivateRoute";
-import InfoSection from "./components/InfoSection";
 import ContactPage from "./pages/ContactPage";
 import AboutPage from "./pages/AboutPage";
 import Navbar from "./components/Navbar";
@@ -94,7 +93,7 @@ const App = () => {
           </Route>
         </Routes>
       </Router>
-       <InfoSection />
+      
       <Footer />
     </AuthProvider>
   );
