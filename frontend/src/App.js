@@ -25,6 +25,8 @@ import SupplierOrders from "./pages/supplier/OrderPage/SupplierOrders";
 
 import ViewProducts from "./pages/supplier/ProductPage/ViewProducts";
 import SupplierBuyers from "./pages/supplier/SupplierBuyers/SupplierBuyers";
+import SupplierReports from "./pages/supplier/Reports/SupplierReports";
+
 
 // ...
 <Route path="/supplier/supermarkets" element={<SupplierBuyers />} />
@@ -90,6 +92,8 @@ const App = () => {
             <Route path="/supplier/products" element={<ViewProducts />} />
             <Route path="/supplier/orders" element={<SupplierOrders />} />
             <Route path="/supplier/supermarkets" element={<SupplierBuyers />} />
+            <Route path="/supplier/reports" element={<SupplierReports />} />
+
           </Route>
         </Routes>
       </Router>
