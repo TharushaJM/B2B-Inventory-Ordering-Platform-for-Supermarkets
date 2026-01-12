@@ -23,6 +23,7 @@ import AdminUsersPage from "./pages/AdminUsersPage";
 import SupplierOrders from "./pages/supplier/OrderPage/SupplierOrders";
 
 import ViewProducts from "./pages/supplier/ProductPage/ViewProducts";
+import Footer from "./components/Footer";
 
 //This USe to Hide Navigation bar for tha page that dosent need it
 const MainLayout = () => {
@@ -86,6 +87,8 @@ const App = () => {
           </Route>
         </Routes>
       </Router>
+
+      <Footer />
     </AuthProvider>
   );
 };
