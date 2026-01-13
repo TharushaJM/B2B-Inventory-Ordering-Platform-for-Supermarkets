@@ -1,8 +1,8 @@
-// backend/routes/productRoutes.js
 const express = require("express");
 const router = express.Router();
 
 const { protect, authorizeRoles } = require("../middleware/authMiddleware");
+const upload = require("../middleware/uploadMiddleware"); // ✅ Image upload fix
 
 const {
   createProduct,
@@ -11,15 +11,22 @@ const {
   getProductById,
   updateProduct,
   deleteProduct,
+  dashboardStats, // ✅ Make sure this is imported
 } = require("../controllers/productController");
 
-// SUPERMARKET: get products (district filtered)
-router.get("/", protect, authorizeRoles("supermarket"), getAllProducts);
+// ==========================================
+// SPECIFIC ROUTES (MUST BE AT THE TOP)
+// ==========================================
 
-// SUPPLIER: create product
-router.post("/", protect, authorizeRoles("supplier"), createProduct);
+// 1. Dashboard Stats (Fix for CastError)
+router.get(
+  "/dashboard-stats",
+  protect,
+  authorizeRoles("supplier"),
+  dashboardStats
+);
 
-// SUPPLIER: own products
+// 2. Supplier: Get Own Products
 router.get(
   "/my-products",
   protect,
@@ -27,13 +34,39 @@ router.get(
   getMyProducts
 );
 
-// GET product by ID
+// 3. Supermarket: Get All Products (Filtered by district)
+router.get(
+  "/",
+  protect,
+  authorizeRoles("supermarket"),
+  getAllProducts
+);
+
+// 4. Supplier: Create Product (Added upload middleware)
+router.post(
+  "/",
+  protect,
+  authorizeRoles("supplier"),
+  upload.single("image"), // ✅ Fix for "Cannot add item"
+  createProduct
+);
+
+// ==========================================
+// DYNAMIC ROUTES (MUST BE AT THE BOTTOM)
+// ==========================================
+
+// 5. Get Product by ID (This catches anything like /:id)
 router.get("/:id", protect, getProductById);
 
-// UPDATE product
-router.patch("/:id", protect, updateProduct);
+// 6. Update Product (Added upload middleware)
+router.patch(
+  "/:id",
+  protect,
+  upload.single("image"), // ✅ Fix for image update
+  updateProduct
+);
 
-// DELETE product
+// 7. Delete Product
 router.delete("/:id", protect, deleteProduct);
 
 module.exports = router;

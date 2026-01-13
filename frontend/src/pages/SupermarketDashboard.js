@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api from "../services/api";
+import api from "../api/axiosInstance"; // Make sure path is correct
 
 export default function SupermarketDashboard() {
   const [products, setProducts] = useState([]);
@@ -23,6 +23,9 @@ export default function SupermarketDashboard() {
   const [orderNote, setOrderNote] = useState("");
   const [placing, setPlacing] = useState(false);
 
+  // Base URL for images
+  const BASE_URL = "http://localhost:5000";
+
   // --------- LOAD DATA ----------
   useEffect(() => {
     const loadAll = async () => {
@@ -31,8 +34,8 @@ export default function SupermarketDashboard() {
         setMeLoading(true);
 
         const [meRes, prodRes] = await Promise.all([
-          api.get("/api/auth/me"),
-          api.get("/api/products"), // if you have district endpoint: "/api/supermarkets/products"
+          api.get("/auth/me"),
+          api.get("/products"), // Backend filters by district automatically
         ]);
 
         setMe(meRes.data);
@@ -49,7 +52,7 @@ export default function SupermarketDashboard() {
         });
       } catch (err) {
         console.error(err);
-        alert(err?.response?.data?.message || "Dashboard load failed");
+        // alert(err?.response?.data?.message || "Dashboard load failed");
       } finally {
         setLoading(false);
         setMeLoading(false);
@@ -75,7 +78,7 @@ export default function SupermarketDashboard() {
 
   // --------- HELPERS ----------
   const getSupplierId = (p) =>
-    p?.supplier_id || p?.supplierId || p?.supplier?._id || p?.supplier || null;
+    p?.supplier?._id || p?.supplier || null;
 
   const cartSupplierId = useMemo(() => {
     if (cart.length === 0) return null;
@@ -178,11 +181,15 @@ export default function SupermarketDashboard() {
     if (stock <= 0) return alert("Out of stock!");
 
     const supplierId = getSupplierId(product);
-    if (!supplierId) return alert("This product has no supplier_id field.");
+    if (!supplierId) return alert("Error: Product has no supplier info.");
 
-    // one supplier per cart (optional but safe)
+    // one supplier per cart logic
     if (cartSupplierId && String(supplierId) !== String(cartSupplierId)) {
-      return alert("Cart can contain products from ONE supplier only. Clear cart to switch.");
+      if(!window.confirm("Cart contains items from another supplier. Clear cart and add this item?")) {
+        return;
+      }
+      setCart([{ product, qty: Number(qtyByProduct[product._id] || 1) }]);
+      return;
     }
 
     const addQty = Number(qtyByProduct[product._id] || 1);
@@ -191,20 +198,22 @@ export default function SupermarketDashboard() {
       const idx = prev.findIndex((x) => x.product?._id === product._id);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], qty: Math.min(999, copy[idx].qty + addQty) };
+        copy[idx] = { ...copy[idx], qty: Math.min(stock, copy[idx].qty + addQty) }; // Max cap at stock
         return copy;
       }
       return [...prev, { product, qty: addQty }];
     });
   };
 
-  const updateCartQty = (productId, qty) => {
+  const updateCartQty = (productId, qty, maxStock) => {
     const n = Number(qty);
     if (!Number.isFinite(n)) return;
+    const validQty = Math.min(Math.max(0, n), maxStock);
+    
     setCart((prev) =>
       prev
         .map((x) =>
-          x.product?._id === productId ? { ...x, qty: Math.max(0, n) } : x
+          x.product?._id === productId ? { ...x, qty: validQty } : x
         )
         .filter((x) => x.qty > 0)
     );
@@ -217,74 +226,47 @@ export default function SupermarketDashboard() {
     setOrderNote("");
   };
 
-  // --------- PLACE ORDER ----------
-const placeOrder = async () => {
-  if (cart.length === 0) return alert("Cart is empty");
+  // --------- PLACE ORDER (FIXED HERE) ----------
+  const placeOrder = async () => {
+    if (cart.length === 0) return alert("Cart is empty");
 
-  const supplierId = cartSupplierId;
-  if (!supplierId) return alert("Supplier missing in cart");
+    const supplierId = cartSupplierId;
+    if (!supplierId) return alert("Supplier missing in cart");
 
-  if (!deliveryAddress.trim()) {
-    return alert("Please enter delivery address");
-  }
+    if (!deliveryAddress.trim()) {
+      return alert("Please enter delivery address");
+    }
 
-  // ✅ token force attach (sometimes interceptor not working)
-  const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    localStorage.getItem("accessToken");
+    // ✅ FIX 1: Map 'qty' to 'quantity' (Backend usually expects 'quantity')
+    const itemsPayload = cart.map((x) => ({
+      product: x.product._id,
+      name: x.product.name,
+      quantity: x.qty, // Changed from qty to quantity to match most schemas
+      price: x.product.price
+    }));
 
-  const itemsNormalized = cart.map((x) => ({
-    product: x.product._id,
-    qty: x.qty,
-    quantity: x.qty,        // ✅ some backends expect "quantity"
-    price: x.product.price,
-    name: x.product.name,
-  }));
+    // ✅ FIX 2: Use 'supplierId' key instead of 'supplier'
+    const payload = {
+      supplierId: supplierId, // Changed to match backend controller destructuring
+      items: itemsPayload,
+      totalAmount: cartTotal,
+      deliveryAddress: deliveryAddress,
+      note: orderNote,
+    };
 
-  // ✅ send multiple key variants so backend mismatch won't break
-  const payload = {
-    supplier: supplierId,
-    supplier_id: supplierId,
-    supermarket: me?._id,
-    supermarket_id: me?._id,
-
-    items: itemsNormalized,
-    orderItems: itemsNormalized, // ✅ some backends expect "orderItems"
-
-    totalAmount: cartTotal,
-    total_amount: cartTotal,
-    total: cartTotal,
-
-    deliveryAddress,
-    delivery_address: deliveryAddress,
-
-    note: orderNote,
-    orderNote: orderNote,
+    try {
+      setPlacing(true);
+      await api.post("/orders", payload);
+      alert("✅ Order placed successfully!");
+      clearCart();
+      setCheckoutOpen(false);
+    } catch (err) {
+      console.error("ORDER ERR:", err);
+      alert(err?.response?.data?.message || "Order failed. Please try again.");
+    } finally {
+      setPlacing(false);
+    }
   };
-
-  try {
-    setPlacing(true);
-
-    const res = await api.post("/api/orders", payload, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-
-    alert("✅ Order placed successfully!");
-    clearCart();
-    setCheckoutOpen(false);
-
-    console.log("ORDER RES:", res.data);
-  } catch (err) {
-    console.error("ORDER ERR:", err);
-    console.log("STATUS:", err?.response?.status);
-    console.log("DATA:", err?.response?.data);
-    alert(err?.response?.data?.message || "Order failed (check console/network)");
-  } finally {
-    setPlacing(false);
-  }
-};
-
 
   // --------- UI ----------
   if (loading) {
@@ -299,10 +281,8 @@ const placeOrder = async () => {
           cartCount={0}
           onCart={() => {}}
         />
-        <div style={styles.grid}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} style={styles.skeletonCard} />
-          ))}
+        <div style={styles.loadingContainer}>
+           Loading products from your district...
         </div>
       </div>
     );
@@ -369,7 +349,9 @@ const placeOrder = async () => {
         <div style={styles.emptyWrap}>
           <div style={styles.emptyIcon}>🛒</div>
           <div style={styles.emptyTitle}>No products found</div>
-          <div style={styles.emptyText}>Try a different keyword or reset filters.</div>
+          <div style={styles.emptyText}>
+            This could be because no suppliers in your district ({me?.district}) have added products yet.
+          </div>
         </div>
       ) : (
         <div style={styles.grid}>
@@ -383,13 +365,13 @@ const placeOrder = async () => {
                 <div style={styles.imgWrap}>
                   {p.image ? (
                     <img
-                      src={`http://localhost:5000${p.image}`}
+                      src={`${BASE_URL}${p.image}`}
                       alt={p.name}
                       style={styles.img}
+                      onError={(e) => {e.target.style.display='none'; e.target.nextSibling.style.display='grid'}}
                     />
-                  ) : (
-                    <div style={styles.noImg}>No Image</div>
-                  )}
+                  ) : null}
+                  <div style={{...styles.noImg, display: p.image ? 'none' : 'grid'}}>No Image</div>
 
                   <div
                     style={{
@@ -464,19 +446,6 @@ const placeOrder = async () => {
                       Add
                     </button>
                   </div>
-
-                  <div style={styles.footerRow}>
-                    <div style={styles.smallNote}>
-                      Updated:{" "}
-                      {p.updatedAt ? new Date(p.updatedAt).toLocaleDateString() : "-"}
-                    </div>
-                    <button
-                      style={styles.viewBtn}
-                      onClick={() => alert(`Selected: ${p.name}`)}
-                    >
-                      View
-                    </button>
-                  </div>
                 </div>
               </div>
             );
@@ -501,7 +470,7 @@ const placeOrder = async () => {
             </div>
 
             {cart.length === 0 ? (
-              <div style={{ color: "#94a3b8", padding: 12 }}>
+              <div style={{ color: "#94a3b8", padding: 20, textAlign: 'center' }}>
                 Cart is empty.
               </div>
             ) : (
@@ -520,8 +489,9 @@ const placeOrder = async () => {
                         style={styles.cartQty}
                         type="number"
                         min={1}
+                        max={x.product.stock}
                         value={x.qty}
-                        onChange={(e) => updateCartQty(x.product._id, e.target.value)}
+                        onChange={(e) => updateCartQty(x.product._id, e.target.value, x.product.stock)}
                       />
                     </div>
                   ))}
@@ -543,7 +513,7 @@ const placeOrder = async () => {
                     style={styles.input}
                     value={orderNote}
                     onChange={(e) => setOrderNote(e.target.value)}
-                    placeholder="Any note..."
+                    placeholder="Any special instructions..."
                   />
                 </div>
 
@@ -575,7 +545,7 @@ function Header({ q, setQ, count, me, meLoading, cartCount, onCart }) {
       <div>
         <div style={styles.hTitle}>Supermarket Dashboard</div>
         <div style={styles.hSub}>
-          Showing <b>{count}</b> supplier products
+          Showing <b>{count}</b> products in <b>{me?.district || "your district"}</b>
         </div>
       </div>
 
@@ -585,7 +555,7 @@ function Header({ q, setQ, count, me, meLoading, cartCount, onCart }) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search product / category / supplier..."
+          placeholder="Search products..."
           style={styles.search}
         />
       </div>
@@ -598,7 +568,7 @@ function Header({ q, setQ, count, me, meLoading, cartCount, onCart }) {
           ) : me ? (
             <div>
               <div style={styles.profileMiniName}>{me.name}</div>
-              <div style={styles.profileMiniEmail}>{me.email}</div>
+              <div style={styles.profileMiniEmail}>{me.district}</div>
             </div>
           ) : (
             <div style={{ color: "#94a3b8", fontSize: 13 }}>No profile</div>
@@ -626,22 +596,26 @@ const styles = {
   page: {
     padding: 20,
     minHeight: "100vh",
-    background:
-      "radial-gradient(1200px 600px at 20% 0%, rgba(99,102,241,0.18), transparent 55%), radial-gradient(1000px 500px at 90% 10%, rgba(34,197,94,0.14), transparent 55%), #0b1220",
+    background: "#0b1220",
     color: "#e5e7eb",
+    fontFamily: "'Inter', sans-serif"
   },
-
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '60vh',
+    color: '#94a3b8'
+  },
   header: {
     display: "grid",
     gridTemplateColumns: "1fr minmax(260px, 520px) auto",
     gap: 12,
     alignItems: "end",
-    marginBottom: 14,
+    marginBottom: 20,
   },
-
-  hTitle: { fontSize: 22, fontWeight: 800, letterSpacing: 0.2 },
-  hSub: { fontSize: 13, color: "#94a3b8", marginTop: 6 },
-
+  hTitle: { fontSize: 24, fontWeight: 800, letterSpacing: -0.5 },
+  hSub: { fontSize: 14, color: "#94a3b8", marginTop: 4 },
   searchWrap: {
     display: "flex",
     alignItems: "center",
@@ -650,7 +624,6 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.10)",
     borderRadius: 12,
     padding: "10px 12px",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
   },
   searchIcon: { opacity: 0.8 },
   search: {
@@ -661,276 +634,242 @@ const styles = {
     color: "#e5e7eb",
     fontSize: 14,
   },
-
   profileMini: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    padding: "10px 12px",
+    padding: "8px 12px",
     borderRadius: 12,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.05)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
-    minWidth: 280,
+    minWidth: 260,
   },
-  profileMiniName: { fontSize: 14, fontWeight: 900, lineHeight: 1.2 },
-  profileMiniEmail: { fontSize: 12, color: "#94a3b8", marginTop: 3 },
-
+  profileMiniName: { fontSize: 14, fontWeight: 700 },
+  profileMiniEmail: { fontSize: 12, color: "#10b981", marginTop: 2 },
   cartBtn: {
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.08)",
-    color: "#e5e7eb",
-    padding: "8px 12px",
-    borderRadius: 12,
+    border: "none",
+    background: "#10b981",
+    color: "#ffffff",
+    padding: "8px 16px",
+    borderRadius: 8,
     cursor: "pointer",
-    fontWeight: 800,
-    whiteSpace: "nowrap",
+    fontWeight: 600,
+    fontSize: 13
   },
-
   topBar: {
     display: "flex",
     justifyContent: "space-between",
     gap: 12,
     flexWrap: "wrap",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: 20,
   },
   statsRow: { display: "flex", gap: 10, flexWrap: "wrap" },
   statChip: {
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.05)",
-    borderRadius: 14,
-    padding: "10px 12px",
-    minWidth: 110,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.20)",
+    borderRadius: 10,
+    padding: "8px 16px",
+    minWidth: 100,
   },
   statLabel: { fontSize: 12, color: "#94a3b8" },
-  statValue: { fontSize: 18, fontWeight: 900, marginTop: 4 },
-
+  statValue: { fontSize: 18, fontWeight: 700, marginTop: 4 },
   controls: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
   select: {
     padding: "10px 12px",
-    borderRadius: 12,
+    borderRadius: 8,
     border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.06)",
+    background: "#1e293b",
     color: "#e5e7eb",
     outline: "none",
+    fontSize: 13
   },
   resetBtn: {
-    padding: "10px 12px",
-    borderRadius: 12,
+    padding: "10px 16px",
+    borderRadius: 8,
     border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.08)",
+    background: "transparent",
     color: "#e5e7eb",
     cursor: "pointer",
-    fontWeight: 800,
+    fontSize: 13
   },
-
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-    gap: 14,
+    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+    gap: 20,
   },
-
   card: {
     borderRadius: 16,
     overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.05)",
-    boxShadow: "0 12px 40px rgba(0,0,0,0.30)",
+    background: "#111827",
+    transition: "transform 0.2s",
   },
-
-  imgWrap: { position: "relative", height: 160, background: "rgba(255,255,255,0.06)" },
-  img: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
-  noImg: { height: "100%", display: "grid", placeItems: "center", color: "#94a3b8", fontSize: 13 },
+  imgWrap: { position: "relative", height: 180, background: "#1f2937" },
+  img: { width: "100%", height: "100%", objectFit: "cover" },
+  noImg: { height: "100%", display: "grid", placeItems: "center", color: "#6b7280", fontSize: 13 },
   badge: {
     position: "absolute",
     top: 10,
     left: 10,
-    fontSize: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid",
-    color: "#e5e7eb",
-    backdropFilter: "blur(8px)",
+    fontSize: 11,
+    padding: "4px 8px",
+    borderRadius: 4,
+    color: "#fff",
+    fontWeight: 600,
+    textTransform: 'uppercase'
   },
-
-  cardBody: { padding: 12 },
-  topRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 },
+  cardBody: { padding: 16 },
+  topRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 12 },
   title: {
-    fontWeight: 800,
+    fontWeight: 700,
     fontSize: 16,
-    lineHeight: 1.2,
-    maxWidth: 180,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    lineHeight: 1.4,
+    color: '#fff'
   },
-  price: { fontWeight: 800, fontSize: 14, color: "#a7f3d0" },
-
+  price: { fontWeight: 700, fontSize: 16, color: "#34d399" },
   meta: {
-    marginTop: 10,
+    marginBottom: 16,
     padding: 10,
-    borderRadius: 12,
-    background: "rgba(0,0,0,0.18)",
-    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    background: "rgba(255,255,255,0.03)",
   },
-  metaRow: { display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0" },
-  metaLabel: { fontSize: 12, color: "#94a3b8" },
-  metaValue: { fontSize: 13, color: "#e5e7eb", fontWeight: 600 },
-
-  cartRow: { marginTop: 10, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" },
-  qtyWrap: { display: "flex", alignItems: "center", gap: 6 },
+  metaRow: { display: "flex", justifyContent: "space-between", gap: 10, padding: "4px 0", fontSize: 13 },
+  metaLabel: { color: "#94a3b8" },
+  metaValue: { color: "#e5e7eb", fontWeight: 500 },
+  cartRow: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" },
+  qtyWrap: { display: "flex", alignItems: "center", gap: 0, border: '1px solid #374151', borderRadius: 6 },
   qtyBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.08)",
+    width: 30,
+    height: 30,
+    background: "transparent",
     color: "#e5e7eb",
     cursor: "pointer",
-    fontWeight: 900,
+    border: 'none',
+    fontSize: 16
   },
   qtyInput: {
-    width: 64,
-    height: 34,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.18)",
+    width: 40,
+    height: 30,
+    background: "transparent",
     color: "#e5e7eb",
     outline: "none",
     textAlign: "center",
-    fontWeight: 800,
+    border: 'none',
+    fontSize: 14,
+    fontWeight: 600
   },
-
   addBtn: {
-    border: "1px solid rgba(34,197,94,0.35)",
-    background: "rgba(34,197,94,0.14)",
-    color: "#e5e7eb",
-    padding: "8px 12px",
-    borderRadius: 12,
+    border: "none",
+    background: "#3b82f6",
+    color: "#fff",
+    padding: "8px 16px",
+    borderRadius: 6,
     cursor: "pointer",
-    fontWeight: 900,
-    whiteSpace: "nowrap",
+    fontWeight: 600,
+    fontSize: 13
   },
-
-  footerRow: { marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  smallNote: { fontSize: 12, color: "#94a3b8" },
-  viewBtn: {
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.08)",
-    color: "#e5e7eb",
-    padding: "8px 12px",
-    borderRadius: 12,
-    cursor: "pointer",
-    fontWeight: 700,
-  },
-
-  skeletonCard: {
-    height: 290,
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.10)",
-    background:
-      "linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.09), rgba(255,255,255,0.04))",
-    backgroundSize: "200% 100%",
-    animation: "shimmer 1.2s infinite",
-  },
-
   emptyWrap: {
-    marginTop: 28,
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.05)",
-    padding: 22,
+    marginTop: 40,
+    padding: 40,
     textAlign: "center",
+    background: "rgba(255,255,255,0.02)",
+    borderRadius: 16,
+    border: '1px dashed rgba(255,255,255,0.1)'
   },
-  emptyIcon: { fontSize: 34, marginBottom: 10 },
-  emptyTitle: { fontSize: 18, fontWeight: 800 },
-  emptyText: { marginTop: 6, color: "#94a3b8", fontSize: 13 },
-
-  // ✅ MODAL
+  emptyIcon: { fontSize: 48, marginBottom: 16, opacity: 0.5 },
+  emptyTitle: { fontSize: 18, fontWeight: 700 },
+  emptyText: { marginTop: 8, color: "#94a3b8", fontSize: 14 },
+  
+  // Modal
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    background: "rgba(0,0,0,0.55)",
-    display: "grid",
-    placeItems: "center",
-    zIndex: 50,
-    padding: 16,
+    background: "rgba(0,0,0,0.7)",
+    display: "flex",
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+    backdropFilter: 'blur(4px)'
   },
   modal: {
-    width: "min(560px, 100%)",
+    width: "100%",
+    maxWidth: 500,
     borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "#0b1220",
-    boxShadow: "0 30px 80px rgba(0,0,0,0.55)",
+    background: "#111827",
+    border: '1px solid #374151',
+    boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
     overflow: "hidden",
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column'
   },
   modalHead: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 14,
-    borderBottom: "1px solid rgba(255,255,255,0.08)",
+    padding: 20,
+    borderBottom: "1px solid #374151",
+    background: '#1f2937'
   },
   modalClose: {
-    border: "1px solid rgba(255,255,255,0.18)",
-    background: "rgba(255,255,255,0.08)",
-    color: "#e5e7eb",
-    borderRadius: 10,
-    padding: "6px 10px",
+    background: "transparent",
+    color: "#9ca3af",
+    border: "none",
     cursor: "pointer",
-    fontWeight: 900,
+    fontSize: 20,
   },
-  cartTable: { padding: 14, display: "flex", flexDirection: "column", gap: 10 },
+  cartTable: { 
+    padding: 20, 
+    overflowY: 'auto',
+    flex: 1
+  },
   cartItemRow: {
     display: "flex",
-    gap: 10,
+    gap: 12,
     alignItems: "center",
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.05)",
-    padding: 10,
-    borderRadius: 12,
+    padding: "12px 0",
+    borderBottom: '1px solid #374151'
   },
   cartQty: {
-    width: 70,
-    height: 34,
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.18)",
+    width: 60,
+    padding: 6,
+    borderRadius: 6,
+    border: "1px solid #374151",
+    background: "#0b1220",
     color: "#e5e7eb",
-    outline: "none",
     textAlign: "center",
-    fontWeight: 900,
   },
-  formGroup: { padding: "0 14px 14px" },
-  label: { display: "block", fontSize: 12, color: "#94a3b8", marginBottom: 6 },
+  formGroup: { padding: "0 20px 16px" },
+  label: { display: "block", fontSize: 13, color: "#9ca3af", marginBottom: 6, fontWeight: 500 },
   textarea: {
     width: "100%",
-    minHeight: 70,
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
+    minHeight: 80,
+    borderRadius: 8,
+    border: "1px solid #374151",
+    background: "#0b1220",
     color: "#e5e7eb",
+    padding: 12,
     outline: "none",
-    padding: 10,
+    resize: 'vertical'
   },
   input: {
     width: "100%",
-    height: 40,
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
+    height: 42,
+    borderRadius: 8,
+    border: "1px solid #374151",
+    background: "#0b1220",
     color: "#e5e7eb",
+    padding: "0 12px",
     outline: "none",
-    padding: "0 10px",
   },
   modalFoot: {
-    padding: 14,
+    padding: 20,
     display: "flex",
     justifyContent: "space-between",
-    gap: 10,
-    borderTop: "1px solid rgba(255,255,255,0.08)",
+    gap: 12,
+    borderTop: "1px solid #374151",
+    background: '#1f2937'
   },
 };

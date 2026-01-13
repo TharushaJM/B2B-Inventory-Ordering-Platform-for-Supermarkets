@@ -1,78 +1,87 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import SupplierSidebar from "../Suppliersidebar";
 import SupplierTopbar from "../SupplierTopbar";
+import axios from "../../../api/axiosInstance"; // Axios import කරගන්න
 import "./SupplierOrders.css";
 
 const SupplierOrders = () => {
-  
-  const [orders, setOrders] = useState([
-    {
-      id: "ORD-2024-001",
-      customer: "Keells Super - Colombo 07",
-      date: "2025-12-21",
-      itemCount: 15,
-      total: 125000.00,
-      status: "Pending",
-      paymentMethod: "Credit (30 Days)",
-      items: [
-        { name: "Munchee Biscuits 100g", qty: 50, price: 100 },
-        { name: "Samaposha 200g", qty: 200, price: 150 },
-      ]
-    },
-    {
-      id: "ORD-2024-002",
-      customer: "Cargills Food City - Nugegoda",
-      date: "2025-12-20",
-      itemCount: 8,
-      total: 45000.50,
-      status: "Shipped",
-      paymentMethod: "Cash on Delivery",
-      items: [
-        { name: "Fresh Milk 1L", qty: 20, price: 400 },
-      ]
-    },
-    {
-      id: "ORD-2024-003",
-      customer: "Arpico Super Centre",
-      date: "2025-12-18",
-      itemCount: 25,
-      total: 210000.00,
-      status: "Delivered",
-      paymentMethod: "Bank Transfer",
-      items: [
-        { name: "Basmati Rice 5kg", qty: 100, price: 1200 },
-      ]
-    },
-  ]);
-
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // 1. Backend එකෙන් Orders ලබා ගැනීම
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get("/orders/supplier"); // අපි කලින් හදපු backend route එක
+      setOrders(response.data);
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Order Status Update කිරීම (Accept/Reject)
+  const handleStatusUpdate = async (orderId, newStatus) => {
+    try {
+      await axios.patch(`/orders/${orderId}/status`, { status: newStatus });
+      
+      // Update local state to reflect changes immediately
+      setOrders(orders.map(order => 
+        order._id === orderId ? { ...order, status: newStatus } : order
+      ));
+      
+      if (selectedOrder && selectedOrder._id === orderId) {
+        setSelectedOrder({ ...selectedOrder, status: newStatus });
+      }
+      
+      alert(`Order marked as ${newStatus}`);
+    } catch (error) {
+      console.error("Error updating status:", error);
+      alert("Failed to update status");
+    }
+  };
+
   // --- Filter Logic ---
-  const filteredOrders = orders.filter(order => {
+  const filteredOrders = orders.filter((order) => {
     const matchesStatus = activeTab === "All" || order.status === activeTab;
-    const matchesSearch = order.customer.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          order.id.toLowerCase().includes(searchTerm.toLowerCase());
+    const customerName = order.supermarket ? order.supermarket.name : "Unknown";
+    const matchesSearch =
+      customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order._id.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesStatus && matchesSearch;
   });
 
-  // --- Stats Calculation (UX Feature) ---
+  // --- Stats Calculation ---
   const stats = {
-    pending: orders.filter(o => o.status === "Pending").length,
-    revenue: orders.reduce((acc, curr) => acc + curr.total, 0),
-    totalOrders: orders.length
+    pending: orders.filter((o) => o.status === "Pending").length,
+    revenue: orders.reduce((acc, curr) => acc + (curr.totalAmount || 0), 0),
+    totalOrders: orders.length,
   };
 
   // --- Status Color Logic ---
   const getStatusClass = (status) => {
     switch (status) {
       case "Pending": return "badge-pending";
+      case "Accepted": // Changed from Shipped for consistency
       case "Shipped": return "badge-shipped";
       case "Delivered": return "badge-delivered";
+      case "Rejected": // Changed from Cancelled
       case "Cancelled": return "badge-cancelled";
       default: return "";
     }
+  };
+
+  // Date formatter
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString("en-GB");
   };
 
   return (
@@ -80,16 +89,14 @@ const SupplierOrders = () => {
       <SupplierSidebar />
       <div className="supplier-main-content">
         <SupplierTopbar />
-        
+
         <div className="orders-page-container">
-          
           {/* 1. Header & Stats Section */}
           <div className="orders-header">
             <div>
               <h1 className="page-title">Order Management</h1>
               <p className="page-subtitle">Manage and track your incoming orders</p>
             </div>
-            {/* Quick Stats Cards */}
             <div className="header-stats">
               <div className="stat-pill">
                 <span className="stat-label">Pending</span>
@@ -97,16 +104,18 @@ const SupplierOrders = () => {
               </div>
               <div className="stat-pill">
                 <span className="stat-label">Total Revenue</span>
-                <span className="stat-value success">Rs. {(stats.revenue/1000).toFixed(1)}k</span>
+                <span className="stat-value success">
+                  Rs. {(stats.revenue / 1000).toFixed(1)}k
+                </span>
               </div>
             </div>
           </div>
 
-          {/* 2. Controls Section (Search & Tabs) */}
+          {/* 2. Controls Section */}
           <div className="controls-section">
             <div className="tabs-container">
-              {["All", "Pending", "Shipped", "Delivered"].map((tab) => (
-                <button 
+              {["All", "Pending", "Accepted", "Delivered", "Rejected"].map((tab) => (
+                <button
                   key={tab}
                   className={`tab-btn ${activeTab === tab ? "active" : ""}`}
                   onClick={() => setActiveTab(tab)}
@@ -116,10 +125,9 @@ const SupplierOrders = () => {
               ))}
             </div>
             <div className="search-wrapper">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-              <input 
-                type="text" 
-                placeholder="Search order ID or customer..." 
+              <input
+                type="text"
+                placeholder="Search order ID or customer..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -128,6 +136,9 @@ const SupplierOrders = () => {
 
           {/* 3. Orders Table */}
           <div className="table-card">
+            {loading ? (
+                <div style={{padding: "20px", textAlign: "center"}}>Loading orders...</div>
+            ) : (
             <table className="orders-table">
               <thead>
                 <tr>
@@ -143,23 +154,27 @@ const SupplierOrders = () => {
               <tbody>
                 {filteredOrders.length > 0 ? (
                   filteredOrders.map((order) => (
-                    <tr key={order.id} className="order-row">
-                      <td className="id-cell">{order.id}</td>
+                    <tr key={order._id} className="order-row">
+                      <td className="id-cell">...{order._id.slice(-6)}</td>
                       <td className="customer-cell">
-                        <div className="customer-name">{order.customer}</div>
-                        <div className="payment-method">{order.paymentMethod}</div>
+                        <div className="customer-name">
+                          {order.supermarket ? order.supermarket.name : "Unknown Store"}
+                        </div>
+                        <div className="payment-method">{order.paymentMethod || "Credit"}</div>
                       </td>
-                      <td>{order.date}</td>
-                      <td>{order.itemCount} Items</td>
-                      <td className="amount-cell">Rs. {order.total.toLocaleString()}</td>
+                      <td>{formatDate(order.createdAt)}</td>
+                      <td>{order.items.length} Items</td>
+                      <td className="amount-cell">
+                        Rs. {(order.totalAmount || 0).toLocaleString()}
+                      </td>
                       <td>
                         <span className={`status-badge ${getStatusClass(order.status)}`}>
                           {order.status}
                         </span>
                       </td>
                       <td className="action-col">
-                        <button 
-                          className="btn-icon" 
+                        <button
+                          className="btn-icon"
                           onClick={() => setSelectedOrder(order)}
                           title="View Details"
                         >
@@ -170,11 +185,14 @@ const SupplierOrders = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="7" className="empty-state">No orders found</td>
+                    <td colSpan="7" className="empty-state">
+                      No orders found
+                    </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            )}
           </div>
         </div>
       </div>
@@ -185,18 +203,28 @@ const SupplierOrders = () => {
           <div className="order-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2>{selectedOrder.id}</h2>
-                <span className={`status-badge ${getStatusClass(selectedOrder.status)}`}>{selectedOrder.status}</span>
+                <h2>Order #{selectedOrder._id.slice(-6)}</h2>
+                <span className={`status-badge ${getStatusClass(selectedOrder.status)}`}>
+                  {selectedOrder.status}
+                </span>
               </div>
-              <button className="close-btn" onClick={() => setSelectedOrder(null)}>×</button>
+              <button className="close-btn" onClick={() => setSelectedOrder(null)}>
+                ×
+              </button>
             </div>
-            
+
             <div className="modal-body">
               <div className="customer-section">
                 <h3>Customer Details</h3>
-                <p><strong>Store:</strong> {selectedOrder.customer}</p>
-                <p><strong>Date:</strong> {selectedOrder.date}</p>
-                <p><strong>Payment:</strong> {selectedOrder.paymentMethod}</p>
+                <p>
+                  <strong>Store:</strong> {selectedOrder.supermarket ? selectedOrder.supermarket.name : "Unknown"}
+                </p>
+                <p>
+                    <strong>Email:</strong> {selectedOrder.supermarket ? selectedOrder.supermarket.email : "-"}
+                </p>
+                <p>
+                  <strong>Date:</strong> {formatDate(selectedOrder.createdAt)}
+                </p>
               </div>
 
               <h3>Order Items</h3>
@@ -213,19 +241,23 @@ const SupplierOrders = () => {
                   <tbody>
                     {selectedOrder.items.map((item, idx) => (
                       <tr key={idx}>
-                        <td>{item.name}</td>
-                        <td className="text-right">{item.qty}</td>
+                        <td>{item.name || "Product Name"}</td>
+                        <td className="text-right">{item.quantity || item.qty}</td>
                         <td className="text-right">{item.price}</td>
-                        <td className="text-right">{(item.qty * item.price).toLocaleString()}</td>
+                        <td className="text-right">
+                          {((item.quantity || 0) * (item.price || 0)).toLocaleString()}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              
+
               <div className="order-total">
                 <span>Total Amount:</span>
-                <span className="total-price">Rs. {selectedOrder.total.toLocaleString()}</span>
+                <span className="total-price">
+                  Rs. {(selectedOrder.totalAmount || 0).toLocaleString()}
+                </span>
               </div>
             </div>
 
@@ -233,11 +265,26 @@ const SupplierOrders = () => {
               {/* Only show Action buttons if Pending */}
               {selectedOrder.status === "Pending" ? (
                 <>
-                  <button className="btn-reject">Reject Order</button>
-                  <button className="btn-accept">Accept & Ship</button>
+                  <button 
+                    className="btn-reject"
+                    onClick={() => handleStatusUpdate(selectedOrder._id, "Rejected")}
+                  >
+                    Reject Order
+                  </button>
+                  <button 
+                    className="btn-accept"
+                    onClick={() => handleStatusUpdate(selectedOrder._id, "Accepted")}
+                  >
+                    Accept Order
+                  </button>
                 </>
               ) : (
-                <button className="btn-secondary" onClick={() => setSelectedOrder(null)}>Close</button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setSelectedOrder(null)}
+                >
+                  Close
+                </button>
               )}
             </div>
           </div>
