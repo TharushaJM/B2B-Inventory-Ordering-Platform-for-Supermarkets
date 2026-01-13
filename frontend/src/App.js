@@ -8,9 +8,10 @@ import {
 } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import PrivateRoute from "./components/PrivateRoute";
-
+import ContactPage from "./pages/ContactPage";
+import AboutPage from "./pages/AboutPage";
 import Navbar from "./components/Navbar";
-
+import Footer from "./components/Footer";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -23,6 +24,11 @@ import AdminUsersPage from "./pages/AdminUsersPage";
 import SupplierOrders from "./pages/supplier/OrderPage/SupplierOrders";
 
 import ViewProducts from "./pages/supplier/ProductPage/ViewProducts";
+import SupplierBuyers from "./pages/supplier/SupplierBuyers/SupplierBuyers";
+
+// ...
+<Route path="/supplier/supermarkets" element={<SupplierBuyers />} />
+
 
 //This USe to Hide Navigation bar for tha page that dosent need it
 const MainLayout = () => {
@@ -48,8 +54,8 @@ const App = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/pending" element={<PendingApprovalPage />} />
-
-            
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
             {/* 🔐 Admin-only routes */}
             <Route element={<PrivateRoute allowedRoles={["admin"]} />}>
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
@@ -83,9 +89,12 @@ const App = () => {
             
             <Route path="/supplier/products" element={<ViewProducts />} />
             <Route path="/supplier/orders" element={<SupplierOrders />} />
+            <Route path="/supplier/supermarkets" element={<SupplierBuyers />} />
           </Route>
         </Routes>
       </Router>
+      
+      <Footer />
     </AuthProvider>
   );
 };
