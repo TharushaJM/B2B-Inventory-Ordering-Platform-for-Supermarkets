@@ -16,8 +16,8 @@ import Footer from "./components/Footer";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import ContactPage from "./pages/ContactPage";
-import AboutPage from "./pages/AboutPage";
+
+
 import PendingApprovalPage from "./pages/PendingApprovalPage";
 
 // Admin Pages
@@ -52,7 +52,10 @@ const MainLayout = () => {
 //  This controls footer visibility based on route
 const AppRoutes = () => {
   const location = useLocation();
-  const hideFooter = location.pathname.startsWith("/supplier");
+  const hideFooter =
+  location.pathname.startsWith("/supplier") ||
+  location.pathname.startsWith("/supermarket");
+
 
   return (
     <>
@@ -64,8 +67,8 @@ const AppRoutes = () => {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/pending" element={<PendingApprovalPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/contact" element={<ContactPage />} />
+          
+         
 
           {/* 🔐 Admin-only routes */}
           <Route element={<PrivateRoute allowedRoles={["admin"]} />}>
