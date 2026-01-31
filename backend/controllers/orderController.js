@@ -4,15 +4,13 @@ const Product = require("../models/Product");
 
 /**
  * 1. Create Order (Supermarket)
+ * SUPPORTS MULTIPLE SUPPLIERS
  */
-// backend/controllers/orderController.js - createOrder function ONLY
-
 const createOrder = async (req, res) => {
   try {
     const {
       items,
       totalAmount,
-      supplierId,
       deliveryAddress,
       note,
       paymentMethod,
@@ -22,34 +20,68 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ message: "No order items" });
     }
 
-    //
-    let initialPaymentStatus = "Pending";
-    if (paymentMethod === "Card") {
-      initialPaymentStatus = "Paid";
-    }
+    /**
+     * STEP 1: Group items by supplier
+     */
+    const itemsBySupplier = {};
 
-    const order = new Order({
-      supermarket: req.user.id,
-      supplier: supplierId,
-      items: items.map((item) => ({
+    for (const item of items) {
+      const product = await Product.findById(item.product).populate("supplier");
+      if (!product || !product.supplier) {
+        return res.status(400).json({ message: "Invalid product or supplier" });
+      }
+
+      const supplierId = product.supplier._id.toString();
+
+      if (!itemsBySupplier[supplierId]) {
+        itemsBySupplier[supplierId] = [];
+      }
+
+      itemsBySupplier[supplierId].push({
         product: item.product,
         name: item.name,
         quantity: item.quantity,
         price: item.price,
-      })),
-      totalAmount,
-      deliveryAddress,
-      note,
-      paymentMethod: paymentMethod || "Cash", // Default to Cash
-      paymentStatus: initialPaymentStatus, // Auto set to Paid or Pending
-      status: "Pending",
-      district: req.user.district,
-    });
+      });
+    }
 
-    const createdOrder = await order.save();
-    res.status(201).json(createdOrder);
+    /**
+     * STEP 2: Create one order per supplier
+     */
+    const createdOrders = [];
+
+    for (const supplierId of Object.keys(itemsBySupplier)) {
+      const supplierItems = itemsBySupplier[supplierId];
+
+      const supplierTotal = supplierItems.reduce(
+        (sum, i) => sum + i.price * i.quantity,
+        0
+      );
+
+      const order = new Order({
+        supermarket: req.user.id,
+        supplier: supplierId, // ✅ REQUIRED FIELD
+        items: supplierItems,
+        totalAmount: supplierTotal,
+        deliveryAddress,
+        note,
+        paymentMethod: paymentMethod || "Cash",
+        paymentStatus:
+          paymentMethod === "Card" ? "Paid" : "Pending",
+        status: "Pending",
+        district: req.user.district,
+      });
+
+      const savedOrder = await order.save();
+      createdOrders.push(savedOrder);
+    }
+
+    return res.status(201).json({
+      message: "Orders created successfully",
+      orders: createdOrders,
+    });
   } catch (error) {
-    console.error("Order Create Error:", error); //
+    console.error("Order Create Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -92,7 +124,7 @@ const getSupplierOrders = async (req, res) => {
 };
 
 /**
- * 4. Get Order By ID (Access Controlled)
+ * 4. Get Order By ID
  */
 const getOrderById = async (req, res) => {
   try {
@@ -132,13 +164,12 @@ const getOrderById = async (req, res) => {
 };
 
 /**
- * 5. Update Order Status (Supplier Only)
+ * 5. Update Order Status (Supplier)
  */
 const updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
-    // ✅ Match your Order schema enum (CASE-SENSITIVE)
     const allowed = [
       "Pending",
       "Accepted",
@@ -156,12 +187,10 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // ✅ supplier-only
     if (order.supplier.toString() !== req.user.id) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    // ✅ FIXED FLOW (matches your real statuses)
     const flow = {
       Pending: ["Accepted", "Rejected"],
       Accepted: ["Dispatched"],
@@ -170,9 +199,7 @@ const updateOrderStatus = async (req, res) => {
       Rejected: [],
     };
 
-    // ✅ Prevent crash if status is unexpected
-    const nextAllowed = flow[order.status] || [];
-    if (!nextAllowed.includes(status)) {
+    if (!flow[order.status]?.includes(status)) {
       return res.status(400).json({
         message: `Cannot change status from ${order.status} to ${status}`,
       });
@@ -188,9 +215,6 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
-/**
- * EXPORTS
- */
 module.exports = {
   createOrder,
   getMyOrders,
