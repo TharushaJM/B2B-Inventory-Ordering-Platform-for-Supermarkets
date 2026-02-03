@@ -24,14 +24,7 @@ export default function SupermarketDashboard() {
   const [orderNote, setOrderNote] = useState("");
   const [placing, setPlacing] = useState(false);
 
-  // ✅ PAYMENT STATES
-  const [paymentMethod, setPaymentMethod] = useState("Cash"); 
-  const [cardDetails, setCardDetails] = useState({
-    number: "",
-    expiry: "",
-    cvc: "",
-    name: ""
-  });
+  
 
   const BASE_URL = "http://localhost:5000";
 
@@ -83,13 +76,9 @@ export default function SupermarketDashboard() {
     return { text: "In stock", bg: "#0f2f1f", bd: "#15803d" };
   };
 
-  // --------- HELPERS ----------
-  const getSupplierId = (p) => p?.supplier?._id || p?.supplier || null;
+  
 
-  const cartSupplierId = useMemo(() => {
-    if (cart.length === 0) return null;
-    return getSupplierId(cart[0].product);
-  }, [cart]);
+
 
   const cartCount = useMemo(
     () => cart.reduce((sum, x) => sum + Number(x.qty || 0), 0),
@@ -174,33 +163,44 @@ export default function SupermarketDashboard() {
     }));
 
   // --------- CART actions ----------
-  const addToCart = (product) => {
-    const stock = Number(product.stock || 0);
-    if (stock <= 0) return alert("Out of stock!");
+const removeFromCart = (productId) => {
+  setCart((prev) =>
+    prev.filter((x) => x.product?._id !== productId)
+  );
+};
 
-    const supplierId = getSupplierId(product);
-    if (!supplierId) return alert("Error: Product has no supplier info.");
 
-    if (cartSupplierId && String(supplierId) !== String(cartSupplierId)) {
-      if(!window.confirm("Cart contains items from another supplier. Clear cart and add this item?")) {
-        return;
-      }
-      setCart([{ product, qty: Number(qtyByProduct[product._id] || 1) }]);
-      return;
+
+
+ const addToCart = (product) => {
+  const stock = Number(product.stock || 0);
+  if (stock <= 0) return alert("❌ Out of stock!");
+
+  const addQty = Number(qtyByProduct[product._id] || 1);
+
+  setCart((prev) => {
+    const idx = prev.findIndex(
+      (x) => x.product?._id === product._id
+    );
+
+    // If product already exists → increase qty
+    if (idx >= 0) {
+      const copy = [...prev];
+      copy[idx] = {
+        ...copy[idx],
+        qty: Math.min(stock, copy[idx].qty + addQty),
+      };
+      return copy;
     }
 
-    const addQty = Number(qtyByProduct[product._id] || 1);
+    // Otherwise add new product (ANY supplier allowed)
+    return [...prev, { product, qty: addQty }];
+  });
 
-    setCart((prev) => {
-      const idx = prev.findIndex((x) => x.product?._id === product._id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = { ...copy[idx], qty: Math.min(stock, copy[idx].qty + addQty) }; 
-        return copy;
-      }
-      return [...prev, { product, qty: addQty }];
-    });
-  };
+  alert(`✅ ${product.name} added to cart`);
+};
+
+
 
   const updateCartQty = (productId, qty, maxStock) => {
     const n = Number(qty);
@@ -221,61 +221,48 @@ export default function SupermarketDashboard() {
     setCheckoutOpen(false);
     setDeliveryAddress("");
     setOrderNote("");
-    setPaymentMethod("Cash");
-    setCardDetails({ number: "", expiry: "", cvc: "", name: "" });
+    
+   
   };
 
   // --------- PLACE ORDER ----------
   const placeOrder = async () => {
-    if (cart.length === 0) return alert("Cart is empty");
-    
-    const supplierId = cartSupplierId;
-    if (!supplierId) return alert("Supplier missing in cart");
+  if (cart.length === 0) return alert("Cart is empty");
 
-    if (!deliveryAddress.trim()) {
-      return alert("Please enter delivery address");
-    }
+  if (!deliveryAddress.trim()) {
+    return alert("Please enter delivery address");
+  }
 
-    if (paymentMethod === "Card") {
-      if (!cardDetails.number || !cardDetails.expiry || !cardDetails.cvc || !cardDetails.name) {
-        return alert("Please enter valid card details");
-      }
-    }
+  const itemsPayload = cart.map((x) => ({
+    product: x.product._id,
+    name: x.product.name,
+    quantity: x.qty,
+    price: x.product.price,
+    supplier: x.product.supplier?._id || x.product.supplier,
+  }));
 
-    const itemsPayload = cart.map((x) => ({
-      product: x.product._id,
-      name: x.product.name,
-      quantity: x.qty,
-      price: x.product.price
-    }));
-
-    const payload = {
-      supplierId: supplierId,
-      items: itemsPayload,
-      totalAmount: cartTotal,
-      deliveryAddress: deliveryAddress,
-      note: orderNote,
-      paymentMethod: paymentMethod, 
-    };
-
-    try {
-      setPlacing(true);
-      
-      if (paymentMethod === "Card") {
-        await new Promise(resolve => setTimeout(resolve, 2000)); 
-      }
-
-      await api.post("/orders", payload);
-      alert(paymentMethod === "Card" ? "✅ Payment Successful! Order Placed." : "✅ Order Placed Successfully!");
-      
-      clearCart();
-    } catch (err) {
-      console.error("ORDER ERR:", err);
-      alert(err?.response?.data?.message || "Order failed. Please try again.");
-    } finally {
-      setPlacing(false);
-    }
+  const payload = {
+    items: itemsPayload,
+    totalAmount: cartTotal,
+    deliveryAddress,
+    note: orderNote,
+    paymentMethod: "Cash",
   };
+
+  try {
+    setPlacing(true);
+
+    await api.post("/orders", payload);
+    alert("✅ Order placed successfully (Cash on Delivery)");
+
+    clearCart();
+  } catch (err) {
+    console.error("ORDER ERR:", err);
+    alert(err?.response?.data?.message || "Order failed. Please try again.");
+  } finally {
+    setPlacing(false);
+  }
+};
 
   // --------- UI ----------
   if (loading) {
@@ -391,11 +378,40 @@ export default function SupermarketDashboard() {
               <>
                 <div style={styles.cartTable}>
                   {cart.map((x) => (
-                    <div key={x.product._id} style={styles.cartItemRow}>
-                      <div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>{x.product.name}</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{fmtLKR(x.product.price)} each</div></div>
-                      <input style={styles.cartQty} type="number" min={1} max={x.product.stock} value={x.qty} onChange={(e) => updateCartQty(x.product._id, e.target.value, x.product.stock)} />
-                    </div>
-                  ))}
+  <div key={x.product._id} style={styles.cartItemRow}>
+    <div style={{ flex: 1 }}>
+      <div style={{ fontWeight: 800 }}>{x.product.name}</div>
+      <div style={{ color: "#94a3b8", fontSize: 12 }}>
+        {fmtLKR(x.product.price)} each
+      </div>
+    </div>
+
+    <input
+      style={styles.cartQty}
+      type="number"
+      min={1}
+      max={x.product.stock}
+      value={x.qty}
+      onChange={(e) =>
+        updateCartQty(
+          x.product._id,
+          e.target.value,
+          x.product.stock
+        )
+      }
+    />
+
+    {/* ✅ REMOVE BUTTON */}
+    <button
+      onClick={() => removeFromCart(x.product._id)}
+      style={styles.removeBtn}
+      title="Remove item"
+    >
+      ✕
+    </button>
+  </div>
+))}
+
                 </div>
 
                 <div style={styles.formGroup}>
@@ -409,24 +425,24 @@ export default function SupermarketDashboard() {
                 </div>
 
                 {/* Payment UI */}
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Payment Method</label>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <button style={{...styles.payBtn, background: paymentMethod === "Cash" ? "#3b82f6" : "#1f2937", border: paymentMethod === "Cash" ? "1px solid #60a5fa" : "1px solid #374151"}} onClick={() => setPaymentMethod("Cash")}>💵 Cash on Delivery</button>
-                    <button style={{...styles.payBtn, background: paymentMethod === "Card" ? "#3b82f6" : "#1f2937", border: paymentMethod === "Card" ? "1px solid #60a5fa" : "1px solid #374151"}} onClick={() => setPaymentMethod("Card")}>💳 Credit / Debit Card</button>
-                  </div>
-                </div>
+               <div style={styles.formGroup}>
+  <label style={styles.label}>Payment Method</label>
 
-                {paymentMethod === "Card" && (
-                  <div style={styles.cardForm}>
-                    <input style={styles.input} placeholder="Card Number" maxLength={19} value={cardDetails.number} onChange={(e) => setCardDetails({...cardDetails, number: e.target.value})} />
-                    <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                      <input style={styles.input} placeholder="MM/YY" maxLength={5} value={cardDetails.expiry} onChange={(e) => setCardDetails({...cardDetails, expiry: e.target.value})} />
-                      <input style={styles.input} placeholder="CVC" maxLength={3} value={cardDetails.cvc} onChange={(e) => setCardDetails({...cardDetails, cvc: e.target.value})} />
-                    </div>
-                    <input style={{...styles.input, marginTop: 10}} placeholder="Cardholder Name" value={cardDetails.name} onChange={(e) => setCardDetails({...cardDetails, name: e.target.value})} />
-                  </div>
-                )}
+  <div
+    style={{
+      ...styles.payBtn,
+      background: "#3b82f6",
+      border: "1px solid #60a5fa",
+      textAlign: "center",
+      cursor: "default"
+    }}
+  >
+    💵 Cash on Delivery
+  </div>
+</div>
+
+
+               
 
                 <div style={styles.modalFoot}>
                   <button style={styles.resetBtn} onClick={clearCart} disabled={placing}>Clear Cart</button>
@@ -525,5 +541,20 @@ const styles = {
   input: { width: "100%", height: 42, borderRadius: 8, border: "1px solid #374151", background: "#0b1220", color: "#e5e7eb", padding: "0 12px", outline: "none" },
   modalFoot: { padding: 20, display: "flex", justifyContent: "space-between", gap: 12, borderTop: "1px solid #374151", background: '#1f2937' },
   payBtn: { flex: 1, padding: 10, borderRadius: 8, color: 'white', cursor: 'pointer', fontWeight: 600, transition: 'background 0.2s', fontSize: 13 },
-  cardForm: { background: 'rgba(255,255,255,0.05)', padding: 15, borderRadius: 8, marginBottom: 15, margin: '0 20px', border: '1px solid #374151' }
+  cardForm: { background: 'rgba(255,255,255,0.05)', padding: 15, borderRadius: 8, marginBottom: 15, margin: '0 20px', border: '1px solid #374151' },
+  removeBtn: {
+    background: "transparent",
+    border: "1px solid #374151",
+    color: "#ef4444",
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 16,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  
 };
